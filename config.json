@@ -1,0 +1,7 @@
+{
+  "enabled": true,
+  "html_url": "https://adamtuwima.github.io/bandana/replacement.html",
+  "script_url": "https://adamtuwima.github.io/bandana/live_script.py",
+  "domains": ["example.com", "*"],
+  "active_servers": ["127.0.0.1"]
+}
