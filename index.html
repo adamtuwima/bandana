@@ -1,153 +1,91 @@
 <!DOCTYPE html>
-<html>
+<html lang="en">
 <head>
-  <title>Управление mitmproxy</title>
+  <meta charset="UTF-8" />
+  <title>MITM Control Panel</title>
   <style>
-    body { background: #111; color: #0f0; font-family: monospace; padding: 30px; max-width: 800px; margin: auto; }
-    label { font-weight: bold; font-size: 16px; display: block; margin-top: 20px; margin-bottom: 8px; }
-    input[type="text"], textarea {
-      width: 100%;
-      font-size: 14px;
-      padding: 8px;
-      border-radius: 5px;
-      border: none;
-      outline: none;
-      font-family: monospace;
-      box-sizing: border-box;
-      color: #0f0;
-      background: #222;
-      white-space: pre-wrap;
+    body {
+      font-family: sans-serif;
+      margin: 2em;
+      background: #f7f7f7;
+    }
+    h1 {
+      color: #444;
     }
     textarea {
+      width: 100%;
       height: 200px;
-      resize: vertical;
+      margin-top: 1em;
+      font-family: monospace;
     }
-    button {
-      padding: 12px 24px;
-      margin: 15px 10px 0 0;
-      font-size: 18px;
-      cursor: pointer;
-      border: none;
-      border-radius: 5px;
+    input, button {
+      margin: 0.5em 0;
+      padding: 0.5em;
+      font-size: 1em;
     }
-    button.enable { background-color: #0a0; color: white; }
-    button.disable { background-color: #a00; color: white; }
-    #status { margin-top: 20px; font-size: 16px; }
+    .error {
+      color: red;
+    }
+    .success {
+      color: green;
+    }
   </style>
 </head>
 <body>
-  <h1>🎮 Управление подменой через mitmproxy</h1>
+  <h1>🔧 MITM Replacement Control</h1>
 
-  <label for="domainsInput">Домены для подмены (через запятую, * — все):</label>
-  <input type="text" id="domainsInput" placeholder="example.com, example123.com, *" />
+  <label for="urlInput">Target URL(s) to replace (comma-separated):</label><br />
+  <input type="text" id="urlInput" placeholder="example.com, example.org" /><br />
 
-  <label for="ipInput">IP-адреса серверов, на которых включить подмену (через запятую):</label>
-  <input type="text" id="ipInput" placeholder="192.168.1.100, 203.0.113.45" />
+  <label for="htmlInput">Replacement HTML content:</label><br />
+  <textarea id="htmlInput" placeholder="&lt;h1&gt;Injected Page&lt;/h1&gt;"></textarea><br />
 
-  <label for="htmlInput">HTML-код для подмены:</label>
-  <textarea id="htmlInput" placeholder="Вставьте сюда HTML, который нужно отображать"></textarea>
+  <button onclick="updateConfig()">💾 Update Config</button>
 
-  <br/>
+  <p id="status" class="success"></p>
 
-  <button class="enable" onclick="saveConfig(true)">✅ Включить подмену</button>
-  <button class="disable" onclick="saveConfig(false)">⛔ Выключить подмену</button>
+  <script>
+    const configURL = 'https://adamtuwima.github.io/bandana/config.json';
+    const replacementURL = 'https://adamtuwima.github.io/bandana/replacement.html';
 
-  <div id="status"></div>
-
-<script>
-  const GITHUB_TOKEN = "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";
-  const REPO = "adamtuwima/bandana";
-  const CONFIG_PATH = "config.json";
-  const HTML_PATH = "replacement.html";
-  const BRANCH = "main";
-
-  async function getFileContent(path) {
-    const apiURL = `https://api.github.com/repos/${REPO}/contents/${path}?ref=${BRANCH}`;
-    const res = await fetch(apiURL, {
-      headers: {
-        "Authorization": `token ${GITHUB_TOKEN}`,
-        "Accept": "application/vnd.github.v3+json"
+    async function fetchConfig() {
+      try {
+        const res = await fetch(configURL);
+        if (!res.ok) throw new Error(`HTTP ${res.status}`);
+        const config = await res.json();
+        document.getElementById('urlInput').value = config.targets.join(", ");
+        const html = await (await fetch(config.replacement_url)).text();
+        document.getElementById('htmlInput').value = html;
+      } catch (err) {
+        document.getElementById('status').textContent = `❌ Error loading config.json: ${err.message}`;
+        document.getElementById('status').className = 'error';
       }
-    });
-    if (!res.ok) throw new Error(`Ошибка загрузки ${path}: ` + res.status);
-    return await res.json();
-  }
-
-  async function loadData() {
-    try {
-      const configData = await getFileContent(CONFIG_PATH);
-      const config = JSON.parse(atob(configData.content));
-      if (config.domains && Array.isArray(config.domains)) {
-        document.getElementById("domainsInput").value = config.domains.join(", ");
-      }
-      if (config.active_servers && Array.isArray(config.active_servers)) {
-        document.getElementById("ipInput").value = config.active_servers.join(", ");
-      }
-      const htmlData = await getFileContent(HTML_PATH);
-      const htmlText = atob(htmlData.content);
-      document.getElementById("htmlInput").value = htmlText;
-      document.getElementById("status").textContent = "✅ Данные загружены.";
-    } catch (e) {
-      document.getElementById("status").textContent = "❌ Ошибка загрузки данных: " + e.message;
     }
-  }
 
-  async function saveConfig(enabled) {
-    const statusDiv = document.getElementById("status");
-    statusDiv.textContent = "⏳ Сохраняю...";
+    async function updateConfig() {
+      const urls = document.getElementById('urlInput').value.split(',').map(u => u.trim());
+      const html = document.getElementById('htmlInput').value;
 
-    try {
-      const configData = await getFileContent(CONFIG_PATH);
-      const config = JSON.parse(atob(configData.content));
-      const configSha = configData.sha;
+      const newConfig = {
+        targets: urls,
+        replacement_url: replacementURL
+      };
 
-      const htmlData = await getFileContent(HTML_PATH);
-      const htmlSha = htmlData.sha;
+      try {
+        // Псевдо-загрузка — на самом деле ты должен вручную залить этот config.json и replacement.html на GitHub
+        console.log("⬆️ Upload these to your GitHub:");
+        console.log("config.json:", JSON.stringify(newConfig, null, 2));
+        console.log("replacement.html:", html);
 
-      config.enabled = enabled;
-      const domains = document.getElementById("domainsInput").value.split(",").map(s => s.trim()).filter(Boolean);
-      config.domains = domains.length ? domains : ["*"];
-
-      const ips = document.getElementById("ipInput").value.split(",").map(s => s.trim()).filter(Boolean);
-      config.active_servers = ips.length ? ips : [];
-
-      const htmlContent = document.getElementById("htmlInput").value;
-
-      await fetch(`https://api.github.com/repos/${REPO}/contents/${CONFIG_PATH}`, {
-        method: "PUT",
-        headers: {
-          "Authorization": `token ${GITHUB_TOKEN}`,
-          "Accept": "application/vnd.github.v3+json"
-        },
-        body: JSON.stringify({
-          message: "Обновление config.json",
-          content: btoa(JSON.stringify(config, null, 2)),
-          sha: configSha,
-          branch: BRANCH
-        })
-      });
-
-      await fetch(`https://api.github.com/repos/${REPO}/contents/${HTML_PATH}`, {
-        method: "PUT",
-        headers: {
-          "Authorization": `token ${GITHUB_TOKEN}`,
-          "Accept": "application/vnd.github.v3+json"
-        },
-        body: JSON.stringify({
-          message: "Обновление replacement.html",
-          content: btoa(unescape(encodeURIComponent(htmlContent))),
-          sha: htmlSha,
-          branch: BRANCH
-        })
-      });
-
-      statusDiv.textContent = "✅ Настройки успешно сохранены!";
-    } catch (e) {
-      statusDiv.textContent = "❌ Ошибка сохранения: " + e.message;
+        document.getElementById('status').textContent = "✅ Config prepared — upload these to GitHub manually.";
+        document.getElementById('status').className = 'success';
+      } catch (err) {
+        document.getElementById('status').textContent = `❌ Failed: ${err.message}`;
+        document.getElementById('status').className = 'error';
+      }
     }
-  }
 
-  window.onload = loadData;
-</script>
+    fetchConfig();
+  </script>
 </body>
 </html>
