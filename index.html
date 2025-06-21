@@ -1,91 +1,101 @@
 <!DOCTYPE html>
-<html lang="en">
+<html lang="ru">
 <head>
-  <meta charset="UTF-8" />
-  <title>MITM Control Panel</title>
+  <meta charset="UTF-8">
+  <title>MITM Панель управления (с GitHub API)</title>
   <style>
-    body {
-      font-family: sans-serif;
-      margin: 2em;
-      background: #f7f7f7;
-    }
-    h1 {
-      color: #444;
-    }
-    textarea {
-      width: 100%;
-      height: 200px;
-      margin-top: 1em;
-      font-family: monospace;
-    }
-    input, button {
-      margin: 0.5em 0;
-      padding: 0.5em;
-      font-size: 1em;
-    }
-    .error {
-      color: red;
-    }
-    .success {
-      color: green;
-    }
+    body { font-family: sans-serif; margin: 2em; background: #f8f8f8; }
+    input, textarea { width: 100%; padding: 0.5em; margin: 0.5em 0; }
+    button { padding: 10px 20px; font-size: 1em; margin-top: 1em; }
+    .status { margin-top: 1em; font-weight: bold; }
+    .error { color: red; }
+    .success { color: green; }
   </style>
 </head>
 <body>
-  <h1>🔧 MITM Replacement Control</h1>
+  <h1>⚙️ MITM Управление (через GitHub API)</h1>
 
-  <label for="urlInput">Target URL(s) to replace (comma-separated):</label><br />
-  <input type="text" id="urlInput" placeholder="example.com, example.org" /><br />
+  <label>🔑 GitHub Token:</label>
+  <input type="password" id="token" placeholder="ghp_..." />
 
-  <label for="htmlInput">Replacement HTML content:</label><br />
-  <textarea id="htmlInput" placeholder="&lt;h1&gt;Injected Page&lt;/h1&gt;"></textarea><br />
+  <label>👤 GitHub Username:</label>
+  <input type="text" id="username" placeholder="adamtuwima" />
 
-  <button onclick="updateConfig()">💾 Update Config</button>
+  <label>📦 Repo Name:</label>
+  <input type="text" id="repo" placeholder="bandana" />
 
-  <p id="status" class="success"></p>
+  <label>🌐 Target URLs (через запятую):</label>
+  <input type="text" id="urls" placeholder="example.com, example.org" />
+
+  <label>📝 Replacement HTML:</label>
+  <textarea id="html" rows="10" placeholder="<h1>Injected</h1>"></textarea>
+
+  <button onclick="uploadToGitHub()">💾 Обновить config.json и replacement.html</button>
+
+  <div class="status" id="status"></div>
 
   <script>
-    const configURL = 'https://adamtuwima.github.io/bandana/config.json';
-    const replacementURL = 'https://adamtuwima.github.io/bandana/replacement.html';
+    async function uploadToGitHub() {
+      const token = document.getElementById("token").value.trim();
+      const username = document.getElementById("username").value.trim();
+      const repo = document.getElementById("repo").value.trim();
+      const urls = document.getElementById("urls").value.split(',').map(u => u.trim()).filter(Boolean);
+      const html = document.getElementById("html").value;
 
-    async function fetchConfig() {
-      try {
-        const res = await fetch(configURL);
-        if (!res.ok) throw new Error(`HTTP ${res.status}`);
-        const config = await res.json();
-        document.getElementById('urlInput').value = config.targets.join(", ");
-        const html = await (await fetch(config.replacement_url)).text();
-        document.getElementById('htmlInput').value = html;
-      } catch (err) {
-        document.getElementById('status').textContent = `❌ Error loading config.json: ${err.message}`;
-        document.getElementById('status').className = 'error';
-      }
-    }
-
-    async function updateConfig() {
-      const urls = document.getElementById('urlInput').value.split(',').map(u => u.trim());
-      const html = document.getElementById('htmlInput').value;
-
-      const newConfig = {
+      const config = {
         targets: urls,
-        replacement_url: replacementURL
+        replacement_url: `https://${username}.github.io/${repo}/replacement.html`
       };
 
-      try {
-        // Псевдо-загрузка — на самом деле ты должен вручную залить этот config.json и replacement.html на GitHub
-        console.log("⬆️ Upload these to your GitHub:");
-        console.log("config.json:", JSON.stringify(newConfig, null, 2));
-        console.log("replacement.html:", html);
+      if (!token || !username || !repo || !urls.length || !html) {
+        return setStatus("⚠️ Заполни все поля!", "error");
+      }
 
-        document.getElementById('status').textContent = "✅ Config prepared — upload these to GitHub manually.";
-        document.getElementById('status').className = 'success';
+      try {
+        await uploadFile("config.json", JSON.stringify(config, null, 2), token, username, repo);
+        await uploadFile("replacement.html", html, token, username, repo);
+        setStatus("✅ Файлы успешно обновлены!", "success");
       } catch (err) {
-        document.getElementById('status').textContent = `❌ Failed: ${err.message}`;
-        document.getElementById('status').className = 'error';
+        console.error(err);
+        setStatus("❌ Ошибка: " + err.message, "error");
       }
     }
 
-    fetchConfig();
+    async function uploadFile(path, content, token, username, repo) {
+      const apiURL = `https://api.github.com/repos/${username}/${repo}/contents/${path}`;
+      const getRes = await fetch(apiURL, {
+        headers: { Authorization: `Bearer ${token}`, Accept: "application/vnd.github.v3+json" }
+      });
+
+      const fileInfo = getRes.ok ? await getRes.json() : {};
+      const sha = fileInfo.sha || null;
+
+      const payload = {
+        message: `Update ${path}`,
+        content: btoa(unescape(encodeURIComponent(content))),
+        sha: sha
+      };
+
+      const putRes = await fetch(apiURL, {
+        method: "PUT",
+        headers: {
+          Authorization: `Bearer ${token}`,
+          Accept: "application/vnd.github.v3+json"
+        },
+        body: JSON.stringify(payload)
+      });
+
+      if (!putRes.ok) {
+        const errText = await putRes.text();
+        throw new Error(`Ошибка загрузки ${path}: ${errText}`);
+      }
+    }
+
+    function setStatus(msg, cls) {
+      const el = document.getElementById("status");
+      el.textContent = msg;
+      el.className = `status ${cls}`;
+    }
   </script>
 </body>
 </html>
