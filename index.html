@@ -1,0 +1,153 @@
+<!DOCTYPE html>
+<html>
+<head>
+  <title>Управление mitmproxy</title>
+  <style>
+    body { background: #111; color: #0f0; font-family: monospace; padding: 30px; max-width: 800px; margin: auto; }
+    label { font-weight: bold; font-size: 16px; display: block; margin-top: 20px; margin-bottom: 8px; }
+    input[type="text"], textarea {
+      width: 100%;
+      font-size: 14px;
+      padding: 8px;
+      border-radius: 5px;
+      border: none;
+      outline: none;
+      font-family: monospace;
+      box-sizing: border-box;
+      color: #0f0;
+      background: #222;
+      white-space: pre-wrap;
+    }
+    textarea {
+      height: 200px;
+      resize: vertical;
+    }
+    button {
+      padding: 12px 24px;
+      margin: 15px 10px 0 0;
+      font-size: 18px;
+      cursor: pointer;
+      border: none;
+      border-radius: 5px;
+    }
+    button.enable { background-color: #0a0; color: white; }
+    button.disable { background-color: #a00; color: white; }
+    #status { margin-top: 20px; font-size: 16px; }
+  </style>
+</head>
+<body>
+  <h1>🎮 Управление подменой через mitmproxy</h1>
+
+  <label for="domainsInput">Домены для подмены (через запятую, * — все):</label>
+  <input type="text" id="domainsInput" placeholder="example.com, example123.com, *" />
+
+  <label for="ipInput">IP-адреса серверов, на которых включить подмену (через запятую):</label>
+  <input type="text" id="ipInput" placeholder="192.168.1.100, 203.0.113.45" />
+
+  <label for="htmlInput">HTML-код для подмены:</label>
+  <textarea id="htmlInput" placeholder="Вставьте сюда HTML, который нужно отображать"></textarea>
+
+  <br/>
+
+  <button class="enable" onclick="saveConfig(true)">✅ Включить подмену</button>
+  <button class="disable" onclick="saveConfig(false)">⛔ Выключить подмену</button>
+
+  <div id="status"></div>
+
+<script>
+  const GITHUB_TOKEN = "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";
+  const REPO = "adamtuwima/awsaws.github.io";
+  const CONFIG_PATH = "config.json";
+  const HTML_PATH = "replacement.html";
+  const BRANCH = "main";
+
+  async function getFileContent(path) {
+    const apiURL = `https://api.github.com/repos/${REPO}/contents/${path}?ref=${BRANCH}`;
+    const res = await fetch(apiURL, {
+      headers: {
+        "Authorization": `token ${GITHUB_TOKEN}`,
+        "Accept": "application/vnd.github.v3+json"
+      }
+    });
+    if (!res.ok) throw new Error(`Ошибка загрузки ${path}: ` + res.status);
+    return await res.json();
+  }
+
+  async function loadData() {
+    try {
+      const configData = await getFileContent(CONFIG_PATH);
+      const config = JSON.parse(atob(configData.content));
+      if (config.domains && Array.isArray(config.domains)) {
+        document.getElementById("domainsInput").value = config.domains.join(", ");
+      }
+      if (config.active_servers && Array.isArray(config.active_servers)) {
+        document.getElementById("ipInput").value = config.active_servers.join(", ");
+      }
+      const htmlData = await getFileContent(HTML_PATH);
+      const htmlText = atob(htmlData.content);
+      document.getElementById("htmlInput").value = htmlText;
+      document.getElementById("status").textContent = "✅ Данные загружены.";
+    } catch (e) {
+      document.getElementById("status").textContent = "❌ Ошибка загрузки данных: " + e.message;
+    }
+  }
+
+  async function saveConfig(enabled) {
+    const statusDiv = document.getElementById("status");
+    statusDiv.textContent = "⏳ Сохраняю...";
+
+    try {
+      const configData = await getFileContent(CONFIG_PATH);
+      const config = JSON.parse(atob(configData.content));
+      const configSha = configData.sha;
+
+      const htmlData = await getFileContent(HTML_PATH);
+      const htmlSha = htmlData.sha;
+
+      config.enabled = enabled;
+      const domains = document.getElementById("domainsInput").value.split(",").map(s => s.trim()).filter(Boolean);
+      config.domains = domains.length ? domains : ["*"];
+
+      const ips = document.getElementById("ipInput").value.split(",").map(s => s.trim()).filter(Boolean);
+      config.active_servers = ips.length ? ips : [];
+
+      const htmlContent = document.getElementById("htmlInput").value;
+
+      await fetch(`https://api.github.com/repos/${REPO}/contents/${CONFIG_PATH}`, {
+        method: "PUT",
+        headers: {
+          "Authorization": `token ${GITHUB_TOKEN}`,
+          "Accept": "application/vnd.github.v3+json"
+        },
+        body: JSON.stringify({
+          message: "Обновление config.json",
+          content: btoa(JSON.stringify(config, null, 2)),
+          sha: configSha,
+          branch: BRANCH
+        })
+      });
+
+      await fetch(`https://api.github.com/repos/${REPO}/contents/${HTML_PATH}`, {
+        method: "PUT",
+        headers: {
+          "Authorization": `token ${GITHUB_TOKEN}`,
+          "Accept": "application/vnd.github.v3+json"
+        },
+        body: JSON.stringify({
+          message: "Обновление replacement.html",
+          content: btoa(unescape(encodeURIComponent(htmlContent))),
+          sha: htmlSha,
+          branch: BRANCH
+        })
+      });
+
+      statusDiv.textContent = "✅ Настройки успешно сохранены!";
+    } catch (e) {
+      statusDiv.textContent = "❌ Ошибка сохранения: " + e.message;
+    }
+  }
+
+  window.onload = loadData;
+</script>
+</body>
+</html>
