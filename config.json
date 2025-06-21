@@ -1,4 +1,6 @@
 {
-  "targets": ["example.com"],
+  "targets": [
+    "google.com"
+  ],
   "replacement_url": "https://adamtuwima.github.io/bandana/replacement.html"
 }
